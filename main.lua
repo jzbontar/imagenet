@@ -186,6 +186,44 @@ if opt.net == 'alexnetowt' then
    net:add(nn.ReLU(true))
    net:add(nn.Linear(4096, 1000))
    net:add(nn.LogSoftMax())
+elseif opt.net == 'vgg' then
+   local modelType = 'A'
+   local cfg = {}
+   if modelType == 'A' then
+      cfg = {64, 'M', 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 512, 'M'}
+   elseif modelType == 'B' then
+      cfg = {64, 64, 'M', 128, 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 512, 'M'}
+   elseif modelType == 'D' then
+      cfg = {64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'M', 512, 512, 512, 'M', 512, 512, 512, 'M'}
+   elseif modelType == 'E' then
+      cfg = {64, 64, 'M', 128, 128, 'M', 256, 256, 256, 256, 'M', 512, 512, 512, 512, 'M', 512, 512, 512, 512, 'M'}
+   else
+      error('Unknown model type: ' .. modelType .. ' | Please specify a modelType A or B or D or E')
+   end
+   net = nn.Sequential()
+   do
+      local iChannels = 3;
+      for k,v in ipairs(cfg) do
+         if v == 'M' then
+            net:add(nn.SpatialMaxPooling(2,2,2,2))
+         else
+            local oChannels = v;
+            local conv3 = nn.SpatialConvolution(iChannels,oChannels,3,3,1,1,1,1);
+            net:add(conv3)
+            net:add(nn.ReLU(true))
+            iChannels = oChannels;
+         end
+      end
+   end
+   net:add(nn.View(512*7*7))
+   net:add(nn.Linear(512*7*7, 4096))
+   net:add(nn.Threshold(0, 1e-6))
+   net:add(nn.Dropout(0.5))
+   net:add(nn.Linear(4096, 4096))
+   net:add(nn.Threshold(0, 1e-6))
+   net:add(nn.Dropout(0.5))
+   net:add(nn.Linear(4096, 1000))
+   net:add(nn.LogSoftMax())
 end
 
 require 'cutorch'
