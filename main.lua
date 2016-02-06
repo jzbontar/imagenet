@@ -14,11 +14,14 @@ cmd = torch.CmdLine()
 cmd:option('-seed', 1337)
 cmd:option('-num_threads', 4)
 cmd:option('-db_dir', 'data/db')
+
 cmd:option('-net', 'alexnetowt')
 cmd:option('-batch_size', 32)
-cmd:option('-lr', 0.01)
+cmd:option('-lr', 0.001)
 cmd:option('-mom', 0.9)
-cmd:option('-wd', 0.0)
+cmd:option('-wd', 0.0001)
+
+cmd:option('-alphastd', 0.5)
 local opt = cmd:parse(arg)
 io.stdout:setvbuf('line')
 
@@ -104,61 +107,70 @@ local function mul32(a,b)
            a[4]*b[1]+a[5]*b[4], a[4]*b[2]+a[5]*b[5], a[4]*b[3]+a[5]*b[6]+a[6]}
 end
 
+local mean, eig_vec, eig_val
+
 local function make_patch(img, dst, test)
    local src = image.decompress(img, 3, 'float')
    local height = src:size(2)
    local width = src:size(3)
 
+   local m = {1, 0, -width / 2, 0, 1, -height / 2}
+
    -- scale shorter side to 256
    local scale = math.max(256 / height, 256 / width)
-   local m = {scale, 0, 0, 0, scale, 0}
+   m = mul32({scale, 0, 0, 0, scale, 0}, m)
    height = height * scale
    width = width * scale
 
-   -- crop random 224 region
-   local trans_x, trans_y
-   if test then
-      trans_x = (width - 224) / 2
-      trans_y = (height - 224) / 2
-   else
-      trans_x = torch.uniform(0, width - 224)
-      trans_y = torch.uniform(0, height - 224)
+   -- translate
+   if not test then
+      local dw = (width - 224) / 2
+      local dh = (height - 224) / 2
+      local trans_x = torch.uniform(-dw, dw)
+      local trans_y = torch.uniform(-dh, dh)
+      m = mul32({1, 0, -trans_x, 0, 1, -trans_y}, m)
    end
-   m = mul32({1, 0, -trans_x, 0, 1, -trans_y}, m)
 
    -- horizontal flip
    if not test and torch.uniform() < 0.5 then
-      m = mul32({-1, 0, 224, 0, 1, 0}, m)
+      m = mul32({-1, 0, 0, 0, 1, 0}, m)
    end
 
+   m = mul32({1, 0, 224 / 2, 0, 1, 224 / 2}, m)
    cv.warp_affine(src, dst, torch.FloatTensor(m))
+
+   -- lighting augmentation
+   if not test and opt.alphastd > 0 then
+      local alpha = torch.FloatTensor(3):normal(0, opt.alphastd)
+      local color_diff = torch.mv(eig_vec, alpha:cmul(eig_val))
+      dst:add(color_diff:view(3,1,1):expandAs(dst))
+   end
 end
 
--- compute the mean for each color channel
-local mean
+-- compute image statistics
 if false then
    torch.manualSeed(opt.seed)
-   local mean = torch.Tensor(3):zero()
    local N = 10000
-   local t = torch.tic()
+   local pixels = torch.FloatTensor(N, 3, 224, 224):zero()
    for i = 1,N do
-      local img = db:get(i)
-      pool:addjob(function()
-         local dst = torch.FloatTensor(3, 224, 224)
-         make_patch(img, dst)
-         return dst
-      end, function(dst)
-         mean:add(dst:double():view(3, 224 * 224):mean(2))
-      end)
+      make_patch(db:get(i), pixels[i])
    end
-   pool:synchronize()
-   print(torch.toc(t))
-   mean:div(N)
+   pixels = pixels:transpose(1, 2):reshape(3, N * 224 * 224)
+   local mean = pixels:mean(2)
+   pixels:add(-1, mean:expandAs(pixels))
+
+   local cov = torch.mm(pixels, pixels:t()):double() / pixels:size(2)
+   local eig_vec, eig_val = torch.svd(cov)
+
    print(mean)
-   torch.save(opt.db_dir .. '/mean.t7', mean:float())
+   print(eig_vec)
+   print(eig_val)
+
+   torch.save(opt.db_dir .. '/stats.t7', {mean:float(), eig_vec:float(), eig_val:float()})
    os.exit()
 else
-   mean = torch.load(opt.db_dir .. '/mean.t7'):view(3, 1, 1):expand(3, 224, 224)
+   mean, eig_vec, eig_val = table.unpack(torch.load(opt.db_dir .. '/stats.t7'))
+   mean:view(3, 1, 1):expand(3, 224, 224)
 end
 
 torch.manualSeed(opt.seed)
