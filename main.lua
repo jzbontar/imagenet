@@ -5,6 +5,7 @@ require 'nn'
 require 'image'
 require 'libcv'
 require 'libutil'
+require 'optim'
 local threads = require 'threads'
 local stringx = require 'pl.stringx'
 local jdb = require 'jdb'
@@ -17,6 +18,7 @@ cmd:option('-net', 'alexnetowt')
 cmd:option('-batch_size', 32)
 cmd:option('-lr', 0.01)
 cmd:option('-mom', 0.9)
+cmd:option('-wd', 0.0)
 local opt = cmd:parse(arg)
 io.stdout:setvbuf('line')
 
@@ -198,7 +200,6 @@ cudnn.fastest = true
 cudnn.convert(net, cudnn)
 
 local params, grads = net:getParameters()
-local mom = torch.CudaTensor(grads:size()):zero()
 local x_batch = torch.CudaTensor(opt.batch_size, 3, 224, 224)
 local y_batch = torch.CudaTensor(opt.batch_size)
 local x_batch_ = torch.FloatTensor(opt.batch_size, 3, 224, 224)
@@ -207,6 +208,17 @@ local pred_ind = torch.CudaTensor()
 local train_err = 6.9
 local val_errs = {}
 local lr_reductions = 0
+local optim_state = {
+	learningRate = opt.lr,
+	learningRateDecay = 0.0,
+	momentum = opt.mom,
+	nesterov = true,
+	dampening = 0.0,
+	weightDecay = opt.wd,
+}
+local function feval()
+	return criterion.output, grads
+end
 
 -- first run so that the cudnn auto-tunner does not affect the time measurements
 net:forward(x_batch)
@@ -239,8 +251,7 @@ for epoch=1,100 do
       criterion:backward(net.output, y_batch)
       net:backward(x_batch, criterion.gradInput)
 
-      mom:mul(opt.mom):add(-opt.lr, grads)
-      params:add(mom)
+      optim.sgd(feval, params, optim_state)
 
       if t % (500 * opt.batch_size) == 1 then
          print(('train epoch=%d t=%d train_nll=%.2f lr=%.1e time(h)=%.1f'):format(epoch, t, train_err, opt.lr, torch.toc(start) / 3600))
@@ -252,7 +263,7 @@ for epoch=1,100 do
          module.output = torch.CudaTensor()
          module.gradInput = torch.CudaTensor()
       end)
-   torch.save(('net/%s_%d.t7'):format(net_fname, epoch), {net, mom})
+   torch.save(('net/%s_%d.t7'):format(net_fname, epoch), {net, optim_state})
 
    -- validate
    local val_err = 0
