@@ -170,7 +170,7 @@ if false then
    os.exit()
 else
    mean, eig_vec, eig_val = table.unpack(torch.load(opt.db_dir .. '/stats.t7'))
-   mean:view(3, 1, 1):expand(3, 224, 224)
+   mean = mean:view(3, 1, 1):expand(3, 224, 224)
 end
 
 torch.manualSeed(opt.seed)
