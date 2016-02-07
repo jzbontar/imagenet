@@ -16,7 +16,7 @@ cmd:option('-num_threads', 4)
 cmd:option('-db_dir', 'data/db')
 
 cmd:option('-net', 'alexnetowt')
-cmd:option('-batch_size', 32)
+cmd:option('-bs', 32)
 cmd:option('-lr', 0.001)
 cmd:option('-mom', 0.9)
 cmd:option('-wd', 0.0001)
@@ -250,9 +250,9 @@ cudnn.fastest = true
 cudnn.convert(net, cudnn)
 
 local params, grads = net:getParameters()
-local x_batch = torch.CudaTensor(opt.batch_size, 3, 224, 224)
-local y_batch = torch.CudaTensor(opt.batch_size)
-local x_batch_ = torch.FloatTensor(opt.batch_size, 3, 224, 224)
+local x_batch = torch.CudaTensor(opt.bs, 3, 224, 224)
+local y_batch = torch.CudaTensor(opt.bs)
+local x_batch_ = torch.FloatTensor(opt.bs, 3, 224, 224)
 local pred_val = torch.CudaTensor()
 local pred_ind = torch.CudaTensor()
 local train_err = 6.9
@@ -283,8 +283,8 @@ for epoch=1,100 do
    -- train
    net:training()
    collectgarbage()
-   for t = 1,num_train - opt.batch_size,opt.batch_size do
-      for i = 1,opt.batch_size do
+   for t = 1,num_train - opt.bs,opt.bs do
+      for i = 1,opt.bs do
          local img = db:get(t + i - 1)
          pool:addjob(function()
                make_patch(img, x_batch_[i])
@@ -293,7 +293,7 @@ for epoch=1,100 do
       end
       pool:synchronize()
       x_batch:copy(x_batch_)
-      y_batch:copy(classes[{{t, t + opt.batch_size - 1}}])
+      y_batch:copy(classes[{{t, t + opt.bs - 1}}])
 
       net:forward(x_batch)
       train_err = 0.99 * train_err + 0.01 * criterion:forward(net.output, y_batch)
@@ -301,9 +301,10 @@ for epoch=1,100 do
       criterion:backward(net.output, y_batch)
       net:backward(x_batch, criterion.gradInput)
 
+      optim_state.learningRate = opt.lr
       optim.sgd(feval, params, optim_state)
 
-      if t % (500 * opt.batch_size) == 1 then
+      if t % (500 * opt.bs) == 1 then
          print(('train epoch=%d t=%d train_nll=%.2f lr=%.1e time(h)=%.1f'):format(epoch, t, train_err, opt.lr, torch.toc(start) / 3600))
       end
    end
@@ -320,8 +321,8 @@ for epoch=1,100 do
    local val_err_cnt = 0
    net:evaluate()
    collectgarbage()
-   for t = num_train,db:size() - opt.batch_size,opt.batch_size do
-      for i = 1,opt.batch_size do
+   for t = num_train,db:size() - opt.bs,opt.bs do
+      for i = 1,opt.bs do
          local img = db:get(t + i - 1)
          pool:addjob(function()
                make_patch(img, x_batch_[i], true)
@@ -330,12 +331,12 @@ for epoch=1,100 do
       end
       pool:synchronize()
       x_batch:copy(x_batch_)
-      y_batch:copy(classes[{{t, t + opt.batch_size - 1}}])
+      y_batch:copy(classes[{{t, t + opt.bs - 1}}])
 
       net:forward(x_batch)
       torch.max(pred_val, pred_ind, net.output, 2)
       val_err = val_err + pred_ind:ne(y_batch):sum()
-      val_err_cnt = val_err_cnt + opt.batch_size
+      val_err_cnt = val_err_cnt + opt.bs
    end
    print(('val epoch=%d val_top1=%.4f'):format(epoch, val_err / val_err_cnt))
    table.insert(val_errs, val_err / val_err_cnt)
