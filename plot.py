@@ -7,11 +7,12 @@ train_stats = {}
 val_stats = {}
 for fname in sys.argv[1:]:
     file = open(fname)
-    args = next(file)
-    if not args.strip():
+    try:
         args = next(file)
-#    if '-lr 0.003' not in args:
-#        continue
+        if not args.strip():
+            args = next(file)
+    except StopIteration:
+        break
     title = fname.split('.')[-1] + args.strip()
     train_stats_file = []
     val_stats_file = []
@@ -25,7 +26,8 @@ for fname in sys.argv[1:]:
     train_stats[title] = train_stats_file
     val_stats[title] = val_stats_file
 
-if 0:
+plt.figure(figsize=(12, 6))
+if 1:
     for k, v in train_stats.items():
         if v[-1] < 6.8:
             plt.plot(v, label=k)

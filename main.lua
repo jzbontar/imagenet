@@ -29,8 +29,9 @@ io.stdout:setvbuf('line')
 local net_fname = opt.net
 for i = 1,#arg do
    io.write(arg[i] .. ' ')
-      net_fname = net_fname .. '_' .. arg[i]
-   end
+   net_fname = net_fname .. '_' .. arg[i]
+end
+net_fname = stringx.replace(net_fname, '/', '_')
 print()
 
 threads.serialization('threads.sharedserialize')
