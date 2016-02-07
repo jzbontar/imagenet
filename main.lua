@@ -342,7 +342,7 @@ for epoch=1,100 do
    table.insert(val_errs, val_err / val_err_cnt)
 
    -- reduce learning rate
-   if #val_errs >= 5 and val_errs[#val_errs] + 0.01 > val_errs[#val_errs - 4] then
+   if #val_errs >= 4 and val_errs[#val_errs] + 0.01 > val_errs[#val_errs - 3] then
       if lr_reductions == 3 then
          break
       end

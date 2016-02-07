@@ -1,0 +1,6 @@
+Makefile
+data
+net
+run
+*.so
+*.swp
